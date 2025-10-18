@@ -1,11 +1,3 @@
-/* doner-kebab-html-encoder.js
-   Encodes every tag name and text content into Doner-Kebab Morse.
-   Dot -> kebab
-   Dash -> doner
-   Space -> space
-   Numbers and special characters unchanged.
-*/
-
 (function() {
   const MORSE = {
     A: ".-", B: "-...", C: "-.-.", D: "-..", E: ".",
@@ -18,47 +10,68 @@
   const DOT = "kebab";
   const DASH = "doner";
 
-  function toDonerKebabMorse(text) {
-    return text.split("").map(ch => {
-      if (ch === " ") return " ";
-      const upper = ch.toUpperCase();
-      if (MORSE[upper]) {
-        return MORSE[upper].split("").map(s => s === "." ? DOT : DASH).join("");
+  // Converts a tag name into Doner-Kebab Morse
+  function toDonerKebab(tagName) {
+    return tagName.split("").map(ch => {
+      const up = ch.toUpperCase();
+      if (MORSE[up]) {
+        return MORSE[up].split("").map(s => s === "." ? DOT : DASH).join("");
       }
-      return ch; // keep special chars/numbers
+      return ch;
     }).join("");
   }
 
-  function convertHTMLToDonerKebab(htmlString) {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(htmlString, "text/html");
+  // Standard HTML tags to auto-map
+  const htmlTags = [
+    "a","abbr","address","area","article","aside","audio","b","base","bdi","bdo","blockquote","body","br","button",
+    "canvas","caption","cite","code","col","colgroup","data","datalist","dd","del","details","dfn","dialog","div",
+    "dl","dt","em","embed","fieldset","figcaption","figure","footer","form","h1","h2","h3","h4","h5","h6","head",
+    "header","hr","html","i","iframe","img","input","ins","kbd","label","legend","li","link","main","map","mark",
+    "meta","meter","nav","noscript","object","ol","optgroup","option","output","p","param","picture","pre","progress",
+    "q","rp","rt","ruby","s","samp","script","section","select","small","source","span","strong","style","sub","summary",
+    "sup","table","tbody","td","template","textarea","tfoot","th","thead","time","title","tr","track","u","ul","var","video","wbr"
+  ];
 
-    function processNode(node) {
-      if (node.nodeType === Node.TEXT_NODE) {
-        return toDonerKebabMorse(node.textContent);
+  // Build mapping: Doner-Kebab tag -> real tag
+  const tagMap = {};
+  htmlTags.forEach(tag => {
+    tagMap[toDonerKebab(tag)] = tag;
+  });
+
+  function convertNode(node) {
+    if (node.nodeType === Node.TEXT_NODE) return; // leave text alone
+
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const tagName = node.tagName.toLowerCase();
+
+      // If it's a mapped Doner-Kebab tag, replace with real tag
+      if (tagMap[tagName]) {
+        const realTag = tagMap[tagName];
+        const newEl = document.createElement(realTag);
+
+        // Copy attributes
+        for (let attr of node.attributes) {
+          newEl.setAttribute(attr.name, attr.value);
+        }
+
+        // Move children
+        while (node.firstChild) {
+          newEl.appendChild(node.firstChild);
+        }
+
+        node.parentNode.replaceChild(newEl, node);
+        node = newEl; // continue processing children on new element
       }
-      if (node.nodeType === Node.ELEMENT_NODE) {
-        const tagName = toDonerKebabMorse(node.tagName.toLowerCase());
-        let inner = "";
-        node.childNodes.forEach(child => {
-          inner += processNode(child);
-        });
-        return `<doner${tagName}>${inner}</doner${tagName}>`;
-      }
-      return "";
+
+      // Recurse on children
+      Array.from(node.children).forEach(child => convertNode(child));
     }
-
-    let result = "<donerkebabcode>";
-    doc.body.childNodes.forEach(n => {
-      result += processNode(n);
-    });
-    result += "</donerkebabcode>";
-    return result;
   }
 
-  // Expose function globally
-  window.donerKebabEncode = convertHTMLToDonerKebab;
+  document.addEventListener("DOMContentLoaded", () => {
+    const wrapper = document.querySelector("donerkebabcode");
+    if (!wrapper) return;
 
-  // Example: if you want to test
-  // console.log(donerKebabEncode('<h1>Hello</h1><p>This is HTML!</p>'));
+    Array.from(wrapper.children).forEach(child => convertNode(child));
+  });
 })();
