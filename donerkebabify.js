@@ -1,8 +1,11 @@
-
- /* donerkebabify.js
-   Convert Doner-Kebab Morse tag names inside <donerkebabcode> 
-   into real DOM elements. Supports standard HTML tags, inline/external
-   <script> (executes), <style>, iframe, and leaves unknown custom tags alone.
+/* donerkebabify.js
+   Robust Doner-Kebab converter inside <donerkebabcode>.
+   - Encoded tag names (Doner-Kebab Morse) -> real HTML elements
+   - Inline and external <script> will execute reliably
+   - <style> tags apply
+   - Preserves attributes (src, type, async, defer, etc.)
+   - Leaves unknown/custom tags untouched but still descends into them
+   - Exposes window.donerkebabify.run() and debug flag
 */
 
 (function () {
@@ -18,7 +21,7 @@
   const DOT = "kebab";
   const DASH = "doner";
 
-  // Standard HTML tags list (common set)
+  // Standard HTML tag list
   const HTML_TAGS = [
     "a","abbr","address","area","article","aside","audio","b","base","bdi","bdo","blockquote","body","br","button",
     "canvas","caption","cite","code","col","colgroup","data","datalist","dd","del","details","dfn","dialog","div",
@@ -29,131 +32,159 @@
     "sup","table","tbody","td","template","textarea","tfoot","th","thead","time","title","tr","track","u","ul","var","video","wbr"
   ];
 
-  // encode a tag name into Doner-Kebab Morse form (no separators)
   function encodeToDonerKebab(tagName) {
     return tagName.split('').map(ch => {
       const up = ch.toUpperCase();
       if (MORSE[up]) {
         return MORSE[up].split('').map(t => t === '.' ? DOT : DASH).join('');
       }
-      // numbers/special stay as-is in tag name (rare)
       return ch;
     }).join('');
   }
 
-  // Build reverse map: dkEncoded -> realTag
+  // build reverse map (encodedName -> real tag)
   const dkToReal = Object.create(null);
   HTML_TAGS.forEach(tag => {
     dkToReal[ encodeToDonerKebab(tag) ] = tag;
   });
 
-  // Utility: copy attributes from one element to another
-  function copyAttributes(from, to) {
-    Array.from(from.attributes || []).forEach(attr => {
-      // Avoid copying attributes like 'id' if you wish; currently we copy all
-      try { to.setAttribute(attr.name, attr.value); } catch (e) {}
+  // debug flag
+  let DEBUG = false;
+
+  function log(...args) {
+    if (DEBUG) console.log('[donerkebabify]', ...args);
+  }
+
+  function copyAttributes(fromEl, toEl) {
+    Array.from(fromEl.attributes || []).forEach(attr => {
+      try { toEl.setAttribute(attr.name, attr.value); } catch (e) { /* ignore */ }
     });
   }
 
-  // Replace a DK element node with a real element according to dkToReal mapping.
-  // Special handling for script/style so they execute/apply.
+  // Replace DK encoded element with a real element. Handles special cases for script/style.
   function replaceDKElement(el, realTag) {
     if (!realTag) return el;
 
+    // Handle <style> -> create a style element and replace in-place
+    if (realTag === 'style') {
+      const styleEl = document.createElement('style');
+      copyAttributes(el, styleEl);
+      // Use textContent for CSS
+      styleEl.textContent = el.textContent || '';
+      el.parentNode.replaceChild(styleEl, el);
+      log('Replaced style at', styleEl);
+      return styleEl;
+    }
+
+    // Handle <script> specially so it executes
     if (realTag === 'script') {
-      // Create a new script element that will execute.
+      // Create a fresh script element
       const newScript = document.createElement('script');
-      // copy attributes (src, type, async, defer, etc.)
+      // Copy attributes (src, type, async, defer, nomodule, etc.)
       copyAttributes(el, newScript);
 
-      // If it's an external script (has src), we just append it and it will load/execute.
-      // For inline script, use textContent to ensure it executes.
-      const inline = el.innerHTML;
-      if (inline && (!el.hasAttribute('src'))) {
-        // Preserve original whitespace exactly as textContent
-        newScript.text = inline;
+      // Decide inline vs external
+      const hasSrc = el.hasAttribute('src');
+
+      if (hasSrc) {
+        // External script: set src (copied above) and append to same parent at the same position
+        // To preserve execution order we will insert the script where the original was.
+        // Using replaceChild with a created script should start loading/executing.
+        // But some browsers delay execution until appended; replaceChild is fine.
+        // Ensure removal of original happens after insertion below.
+        // Because we copied attributes already, we can use replaceChild directly.
+        // For reliability, we'll insert newScript then remove old element.
+        el.parentNode.insertBefore(newScript, el);
+        el.parentNode.removeChild(el);
+        log('Inserted external script with src', newScript.getAttribute('src'));
+        return newScript;
+      } else {
+        // Inline script: set textContent then insert to cause execution.
+        const inlineCode = el.textContent || '';
+        // If type is module, keep type attribute — module inline execution also works when appended.
+        newScript.textContent = inlineCode;
+        // Insert in place of original to preserve order
+        el.parentNode.insertBefore(newScript, el);
+        el.parentNode.removeChild(el);
+        log('Inserted inline script (executed)');
+        return newScript;
       }
-      el.parentNode.replaceChild(newScript, el);
-      return newScript;
     }
 
-    if (realTag === 'style') {
-      const newStyle = document.createElement('style');
-      copyAttributes(el, newStyle);
-      // inner text becomes CSS rules
-      newStyle.textContent = el.textContent || '';
-      el.parentNode.replaceChild(newStyle, el);
-      return newStyle;
-    }
-
-    // Generic elements (including iframe, img, input, etc.)
+    // Generic element replacement:
     const newEl = document.createElement(realTag);
     copyAttributes(el, newEl);
 
-    // Move children over (text nodes and element nodes). For some replaced elements
-    // like <img> or <input> there won't be children; that's fine.
+    // Move children (works for iframe fallback children too)
     while (el.firstChild) {
       newEl.appendChild(el.firstChild);
     }
 
     el.parentNode.replaceChild(newEl, el);
+    log('Replaced', el.tagName, '=>', realTag);
     return newEl;
   }
 
-  // Walk and convert children of a parent element (non-destructive traversal)
+  // Recursively convert children of a root element.
   function convertChildren(root) {
-    // Use a static array copy to avoid issues while replacing nodes
-    const children = Array.from(root.children);
-    for (const child of children) {
-      // tagName of custom dk tags will be lowercase already (DOM)
+    // Make an array copy since we may replace nodes during iteration.
+    const nodes = Array.from(root.children);
+    for (const child of nodes) {
       const tag = (child.tagName || '').toLowerCase();
 
-      // Skip the wrapper itself if it accidentally appears here
+      // Skip wrapper tag itself and just recurse into it
       if (tag === 'donerkebabcode') {
-        // Recurse inside its children instead of replacing the wrapper
         convertChildren(child);
         continue;
       }
 
-      // If tag matches a Doner-Kebab encoded form in our map, replace it
+      // If this tag matches an encoded standard tag, replace it with the real one
       if (dkToReal[tag]) {
         const realTag = dkToReal[tag];
         const replaced = replaceDKElement(child, realTag);
-        // Continue recursion inside the new element (it may contain nested DK tags)
+        // Recurse into the replaced element (so nested encoded tags inside run)
         convertChildren(replaced);
       } else {
-        // Tag is not a DK-encoded standard tag -> leave it as a custom tag.
-        // But still descend so nested things can be converted.
+        // Not recognized: treat as a custom tag, but recurse inside it in case nested encoded tags exist
         convertChildren(child);
       }
     }
   }
 
-  // Main runner: find <donerkebabcode> wrappers and convert their interior
+  // Top-level run
   function runDonerKebabify() {
     const wrappers = document.querySelectorAll('donerkebabcode');
-    if (!wrappers || wrappers.length === 0) return;
+    if (!wrappers || wrappers.length === 0) {
+      log('No <donerkebabcode> wrappers found.');
+      return;
+    }
 
     wrappers.forEach(wrapper => {
-      // Convert children recursively
+      // Convert children of wrapper in document order
       convertChildren(wrapper);
     });
+
+    log('donerkebabify: conversion complete');
   }
 
-  // Run once DOM is ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', runDonerKebabify, { once: true });
-  } else {
-    runDonerKebabify();
+  // Auto-run on DOMContentLoaded
+  function autoRun() {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', runDonerKebabify, { once: true });
+    } else {
+      runDonerKebabify();
+    }
   }
 
-  // Expose small API if someone wants to re-run or inspect
+  // Expose API
   window.donerkebabify = {
+    run: runDonerKebabify,
     encodeToDonerKebab,
-    dkToRealMap: dkToReal,
-    run: runDonerKebabify
+    map: dkToReal,
+    set debug(v) { DEBUG = !!v; },
+    get debug() { return DEBUG; }
   };
 
-})();
+  autoRun();
 
-  
+})();
