@@ -1,13 +1,13 @@
 /* donerkebabify.js
    Robust Doner-Kebab converter inside <donerkebabcode>.
    - Encoded tag names (Doner-Kebab Morse) -> real HTML elements
-   - Inline and external <script> will execute reliably
+   - Inline and external <script> will execute reliably (module/async/defer preserved)
    - <style> tags apply
-   - Preserves attributes (src, type, async, defer, etc.)
+   - <source> (encoded) is supported for audio/video/img and will be converted
+   - Preserves attributes (src, type, async, defer, controls, etc.)
    - Leaves unknown/custom tags untouched but still descends into them
    - Exposes window.donerkebabify.run() and debug flag
 */
-
 (function () {
   'use strict';
 
@@ -21,7 +21,7 @@
   const DOT = "kebab";
   const DASH = "doner";
 
-  // Standard HTML tag list
+  // Standard HTML tag list (common set)
   const HTML_TAGS = [
     "a","abbr","address","area","article","aside","audio","b","base","bdi","bdo","blockquote","body","br","button",
     "canvas","caption","cite","code","col","colgroup","data","datalist","dd","del","details","dfn","dialog","div",
@@ -32,6 +32,7 @@
     "sup","table","tbody","td","template","textarea","tfoot","th","thead","time","title","tr","track","u","ul","var","video","wbr"
   ];
 
+  // encode a tag name into Doner-Kebab Morse form (no separators)
   function encodeToDonerKebab(tagName) {
     return tagName.split('').map(ch => {
       const up = ch.toUpperCase();
@@ -50,108 +51,144 @@
 
   // debug flag
   let DEBUG = false;
+  function log(...args) { if (DEBUG) console.log('[donerkebabify]', ...args); }
 
-  function log(...args) {
-    if (DEBUG) console.log('[donerkebabify]', ...args);
-  }
-
+  // copy attributes safely
   function copyAttributes(fromEl, toEl) {
     Array.from(fromEl.attributes || []).forEach(attr => {
       try { toEl.setAttribute(attr.name, attr.value); } catch (e) { /* ignore */ }
     });
   }
 
-  // Replace DK encoded element with a real element. Handles special cases for script/style.
-  function replaceDKElement(el, realTag) {
-    if (!realTag) return el;
+  // Create and insert a style element that will apply immediately
+  function createStyleFrom(el) {
+    const styleEl = document.createElement('style');
+    copyAttributes(el, styleEl);
+    // preserve text exactly
+    styleEl.textContent = el.textContent || '';
+    return styleEl;
+  }
 
-    // Handle <style> -> create a style element and replace in-place
-    if (realTag === 'style') {
-      const styleEl = document.createElement('style');
-      copyAttributes(el, styleEl);
-      // Use textContent for CSS
-      styleEl.textContent = el.textContent || '';
-      el.parentNode.replaceChild(styleEl, el);
-      log('Replaced style at', styleEl);
-      return styleEl;
+  // Create and insert a script element that will execute reliably
+  function createScriptFrom(el) {
+    const newScript = document.createElement('script');
+    copyAttributes(el, newScript);
+
+    const hasSrc = el.hasAttribute('src');
+    const type = newScript.getAttribute('type') || '';
+    // For inline scripts: set textContent
+    if (!hasSrc) {
+      // module inline will execute when appended
+      newScript.textContent = el.textContent || '';
     }
+    return { newScript, hasSrc, type };
+  }
 
-    // Handle <script> specially so it executes
-    if (realTag === 'script') {
-      // Create a fresh script element
-      const newScript = document.createElement('script');
-      // Copy attributes (src, type, async, defer, nomodule, etc.)
-      copyAttributes(el, newScript);
+  // Create a source element from encoded element
+  function createSourceFrom(el) {
+    const srcEl = document.createElement('source');
+    copyAttributes(el, srcEl);
+    return srcEl;
+  }
 
-      // Decide inline vs external
-      const hasSrc = el.hasAttribute('src');
-
-      if (hasSrc) {
-        // External script: set src (copied above) and append to same parent at the same position
-        // To preserve execution order we will insert the script where the original was.
-        // Using replaceChild with a created script should start loading/executing.
-        // But some browsers delay execution until appended; replaceChild is fine.
-        // Ensure removal of original happens after insertion below.
-        // Because we copied attributes already, we can use replaceChild directly.
-        // For reliability, we'll insert newScript then remove old element.
-        el.parentNode.insertBefore(newScript, el);
-        el.parentNode.removeChild(el);
-        log('Inserted external script with src', newScript.getAttribute('src'));
-        return newScript;
-      } else {
-        // Inline script: set textContent then insert to cause execution.
-        const inlineCode = el.textContent || '';
-        // If type is module, keep type attribute — module inline execution also works when appended.
-        newScript.textContent = inlineCode;
-        // Insert in place of original to preserve order
-        el.parentNode.insertBefore(newScript, el);
-        el.parentNode.removeChild(el);
-        log('Inserted inline script (executed)');
-        return newScript;
-      }
-    }
-
-    // Generic element replacement:
+  // Generic element creation
+  function createElementFrom(el, realTag) {
     const newEl = document.createElement(realTag);
     copyAttributes(el, newEl);
 
-    // Move children (works for iframe fallback children too)
+    // move children (they may be encoded and will be converted later)
     while (el.firstChild) {
       newEl.appendChild(el.firstChild);
     }
-
-    el.parentNode.replaceChild(newEl, el);
-    log('Replaced', el.tagName, '=>', realTag);
     return newEl;
   }
 
-  // Recursively convert children of a root element.
+  // Replace one DK node with a real element, keeping order and ensuring scripts/styles run/apply.
+  function replaceDKElement(el, realTag) {
+    if (!realTag) return el;
+
+    // STYLE
+    if (realTag === 'style') {
+      const styleNode = createStyleFrom(el);
+      el.parentNode.replaceChild(styleNode, el);
+      log('style replaced');
+      return styleNode;
+    }
+
+    // SCRIPT
+    if (realTag === 'script') {
+      const { newScript, hasSrc } = createScriptFrom(el);
+      // Insert the script in-place to preserve order and execution timing
+      el.parentNode.insertBefore(newScript, el);
+      el.parentNode.removeChild(el);
+      log('script inserted', hasSrc ? ('src=' + newScript.getAttribute('src')) : 'inline');
+      return newScript;
+    }
+
+    // SOURCE
+    if (realTag === 'source') {
+      // Create real <source> and replace
+      const srcNode = createSourceFrom(el);
+      el.parentNode.replaceChild(srcNode, el);
+      log('source replaced (for media)');
+      return srcNode;
+    }
+
+    // Generic element (audio/video/img/div/p/etc)
+    const newEl = createElementFrom(el, realTag);
+    el.parentNode.replaceChild(newEl, el);
+    log('generic replaced', el.tagName, '=>', realTag);
+    return newEl;
+  }
+
+  // Convert children of root. This function tries to preserve authoring order:
+  // it iterates over childNodes (not only elements) to keep placement accurate.
   function convertChildren(root) {
-    // Make an array copy since we may replace nodes during iteration.
-    const nodes = Array.from(root.children);
-    for (const child of nodes) {
-      const tag = (child.tagName || '').toLowerCase();
+    // We will iterate using a manual index over a live children list to preserve order when inserting/removing.
+    let i = 0;
+    while (i < root.childNodes.length) {
+      const node = root.childNodes[i];
 
-      // Skip wrapper tag itself and just recurse into it
-      if (tag === 'donerkebabcode') {
-        convertChildren(child);
-        continue;
-      }
+      // If element node, check for DK encoding
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const tag = (node.tagName || '').toLowerCase();
 
-      // If this tag matches an encoded standard tag, replace it with the real one
-      if (dkToReal[tag]) {
-        const realTag = dkToReal[tag];
-        const replaced = replaceDKElement(child, realTag);
-        // Recurse into the replaced element (so nested encoded tags inside run)
-        convertChildren(replaced);
+        // If wrapper encountered, recurse inside but DO NOT replace wrapper
+        if (tag === 'donerkebabcode') {
+          // move into wrapper's children
+          convertChildren(node);
+          i++; // move to next sibling
+          continue;
+        }
+
+        // If this element is a Doner-Kebab encoded form of a standard tag, replace it
+        if (dkToReal[tag]) {
+          const realTag = dkToReal[tag];
+
+          // Replace now, preserving index: replacement will occupy the same index
+          const replaced = replaceDKElement(node, realTag);
+
+          // After replacement, recurse into the replaced element so nested DK tags convert.
+          convertChildren(replaced);
+
+          // don't increment i because childNodes length may have changed but we want to continue after replaced
+          i++; 
+          continue;
+        } else {
+          // Not a recognized DK tag (custom tag). Recurse into it (its children may contain DK tags)
+          convertChildren(node);
+          i++;
+          continue;
+        }
       } else {
-        // Not recognized: treat as a custom tag, but recurse inside it in case nested encoded tags exist
-        convertChildren(child);
+        // Not an element (text/comment). Just skip
+        i++;
+        continue;
       }
     }
   }
 
-  // Top-level run
+  // Top-level runner
   function runDonerKebabify() {
     const wrappers = document.querySelectorAll('donerkebabcode');
     if (!wrappers || wrappers.length === 0) {
@@ -159,8 +196,8 @@
       return;
     }
 
+    // Process wrappers in document order
     wrappers.forEach(wrapper => {
-      // Convert children of wrapper in document order
       convertChildren(wrapper);
     });
 
