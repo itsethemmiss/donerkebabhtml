@@ -22,6 +22,9 @@ The encoded tags are automatically transformed back to standard HTML at runtime 
 
 ## 🚀 Quick Start
 
+**Use the Doner-Kebab HTML Converter to quickly encode your HTML before adding it to your page:**  
+[https://itsethemmiss.github.io/donerkebabhtml/converter.html](https://itsethemmiss.github.io/donerkebabhtml/converter.html)
+
 ### Installation
 
 Include the Doner-Kebab library in your HTML file:
