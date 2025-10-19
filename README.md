@@ -28,3 +28,24 @@ Include the Doner-Kebab library in your HTML file:
 
 ```html
 <script src="https://cdn.jsdelivr.net/gh/itsethemmiss/donerkebabhtml@main/donerkebabify.js"></script>
+
+## 🥙 Use the Converter
+
+Doner-Kebab HTML comes with an online or local converter to quickly transform your standard HTML into kebab-encoded HTML.
+
+### Online Converter
+
+Visit the [Doner-Kebab HTML Converter](https://itsethemmiss.github.io/donerkebabhtml) to paste your HTML and get the encoded version instantly.
+
+### Local Usage
+
+You can also use the converter script locally:
+
+```html
+<script src="https://cdn.jsdelivr.net/gh/itsethemmiss/donerkebabhtml@main/donerkebabify.js"></script>
+<script>
+  // Example: Convert a div to kebab-encoded format
+  const html = '<div>Hello, world!</div>';
+  const encoded = DonerKebab.encode(html);
+  console.log(encoded);
+</script>
