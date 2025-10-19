@@ -11,6 +11,10 @@ Doner-Kebab HTML is a unique HTML encoding library that converts standard HTML t
 
 The encoded tags are automatically transformed back to standard HTML at runtime using the `donerkebabify.js` library.
 
+### 🔄 Try the Online Converter
+
+**[👉 Launch Doner-Kebab Converter]([https://poe.com/DonerKebabHTML](https://itsethemmiss.github.io/donerkebabhtml/converter))** - Convert your HTML to kebab-encoded format instantly!
+
 ## ✨ Features
 
 - 🔒 **Preserve Scripts** - Script tags remain intact and fully functional
@@ -22,8 +26,9 @@ The encoded tags are automatically transformed back to standard HTML at runtime 
 
 ## 🚀 Quick Start
 
-**Use the Doner-Kebab HTML Converter to quickly encode your HTML before adding it to your page:**  
-[https://itsethemmiss.github.io/donerkebabhtml/converter.html](https://itsethemmiss.github.io/donerkebabhtml/converter.html)
+### Try It Online
+
+Don't want to set up anything? Use our **[online converter](https://itsethemmiss.github.io/donerkebabhtml/converter)** to encode your HTML instantly!
 
 ### Installation
 
