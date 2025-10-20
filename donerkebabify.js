@@ -127,13 +127,51 @@
     } else { runDonerKebabify(); }
   }
 
-  window.donerkebabify = {
-    run: runDonerKebabify,
-    encodeToDonerKebab,
-    map: dkToReal,
-    set debug(v){ DEBUG = !!v; },
-    get debug(){ return DEBUG; }
-  };
+// enhanced DK -> HTML processor with better CSS and script handling
+window.donerkebabify = {
+  run() {
+    const dk = document.querySelector("donerkebabcode");
+    if (!dk) return;
+
+    // Convert DK Morse tag names to HTML tags
+    const morseToChar = { kebab: ".", doner: "-" };
+    const dkToHtml = t =>
+      t
+        .replace(/kebab|doner/g, m => morseToChar[m])
+        .replace(/\./g, "")
+        .replace(/-/g, "");
+
+    const all = dk.querySelectorAll("*");
+    all.forEach(el => {
+      const htmlTag = dkToHtml(el.tagName.toLowerCase());
+      const newEl = document.createElement(htmlTag || "div");
+
+      // copy attributes and classes
+      for (let attr of el.attributes) newEl.setAttribute(attr.name, attr.value);
+      newEl.innerHTML = el.innerHTML;
+      el.replaceWith(newEl);
+
+      // handle CSS & JS
+      if (htmlTag === "style") {
+        // move to <head> for proper Tailwind + DK styles
+        const styleEl = document.createElement("style");
+        styleEl.textContent = newEl.textContent;
+        document.head.appendChild(styleEl);
+        newEl.remove();
+      } else if (htmlTag === "script") {
+        const scriptEl = document.createElement("script");
+        scriptEl.textContent = newEl.textContent;
+        document.body.appendChild(scriptEl);
+        newEl.remove();
+      }
+    });
+  },
+};
+
+window.addEventListener("DOMContentLoaded", () => {
+  window.donerkebabify.run();
+});
+
 
   autoRun();
 
