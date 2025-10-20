@@ -62,8 +62,9 @@
       const styleEl = document.createElement('style');
       copyAttributes(el, styleEl);
       styleEl.textContent = el.textContent || '';
-      el.parentNode.replaceChild(styleEl, el);
-      log('Replaced style:', styleEl);
+      document.head.appendChild(styleEl);
+      el.parentNode.removeChild(el);
+      log('Inserted style:', styleEl);
       return styleEl;
     }
 
@@ -72,9 +73,10 @@
       copyAttributes(el, newScript);
 
       if(el.hasAttribute('src')) {
+        newScript.src = el.getAttribute('src');
         el.parentNode.insertBefore(newScript, el);
         el.parentNode.removeChild(el);
-        log('Inserted external script:', newScript.getAttribute('src'));
+        log('Inserted external script:', newScript.src);
         return newScript;
       } else {
         newScript.textContent = el.textContent || '';
@@ -85,10 +87,8 @@
       }
     }
 
-    // Generic element (keeps all attributes, including class for Tailwind)
     const newEl = document.createElement(realTag);
     copyAttributes(el, newEl);
-
     while(el.firstChild) newEl.appendChild(el.firstChild);
     el.parentNode.replaceChild(newEl, el);
     log('Replaced', el.tagName, '=>', realTag);
@@ -127,51 +127,45 @@
     } else { runDonerKebabify(); }
   }
 
-// enhanced DK -> HTML processor with better CSS and script handling
-window.donerkebabify = {
-  run() {
-    const dk = document.querySelector("donerkebabcode");
-    if (!dk) return;
+  window.donerkebabify = {
+    run() {
+      const dk = document.querySelector("donerkebabcode");
+      if (!dk) return;
 
-    // Convert DK Morse tag names to HTML tags
-    const morseToChar = { kebab: ".", doner: "-" };
-    const dkToHtml = t =>
-      t
-        .replace(/kebab|doner/g, m => morseToChar[m])
-        .replace(/\./g, "")
-        .replace(/-/g, "");
+      const morseToChar = { kebab: ".", doner: "-" };
+      const dkToHtml = t =>
+        t
+          .replace(/kebab|doner/g, m => morseToChar[m])
+          .replace(/\./g, "")
+          .replace(/-/g, "");
 
-    const all = dk.querySelectorAll("*");
-    all.forEach(el => {
-      const htmlTag = dkToHtml(el.tagName.toLowerCase());
-      const newEl = document.createElement(htmlTag || "div");
+      const all = dk.querySelectorAll("*");
+      all.forEach(el => {
+        const htmlTag = dkToHtml(el.tagName.toLowerCase());
+        const newEl = document.createElement(htmlTag || "div");
 
-      // copy attributes and classes
-      for (let attr of el.attributes) newEl.setAttribute(attr.name, attr.value);
-      newEl.innerHTML = el.innerHTML;
-      el.replaceWith(newEl);
+        for (let attr of el.attributes) newEl.setAttribute(attr.name, attr.value);
+        newEl.innerHTML = el.innerHTML;
+        el.replaceWith(newEl);
 
-      // handle CSS & JS
-      if (htmlTag === "style") {
-        // move to <head> for proper Tailwind + DK styles
-        const styleEl = document.createElement("style");
-        styleEl.textContent = newEl.textContent;
-        document.head.appendChild(styleEl);
-        newEl.remove();
-      } else if (htmlTag === "script") {
-        const scriptEl = document.createElement("script");
-        scriptEl.textContent = newEl.textContent;
-        document.body.appendChild(scriptEl);
-        newEl.remove();
-      }
-    });
-  },
-};
+        if (htmlTag === "style") {
+          const styleEl = document.createElement("style");
+          styleEl.textContent = newEl.textContent;
+          document.head.appendChild(styleEl);
+          newEl.remove();
+        } else if (htmlTag === "script") {
+          const scriptEl = document.createElement("script");
+          scriptEl.textContent = newEl.textContent;
+          document.body.appendChild(scriptEl);
+          newEl.remove();
+        }
+      });
+    },
+  };
 
-window.addEventListener("DOMContentLoaded", () => {
-  window.donerkebabify.run();
-});
-
+  window.addEventListener("DOMContentLoaded", () => {
+    window.donerkebabify.run();
+  });
 
   autoRun();
 
